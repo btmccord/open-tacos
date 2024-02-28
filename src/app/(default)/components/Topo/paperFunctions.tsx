@@ -187,6 +187,7 @@ export function toggleDrawing (state: boolean): void {
     activeRouteTopo.topoPathTermination.visible = false
   } else {
     activeRouteTopo.topoPath.lastSegment?.remove()
+    activeRouteTopo.topoPath.lastSegment.clearHandles()
     drawPathLook(activeRouteTopo)
   }
 }
@@ -398,7 +399,7 @@ function drawTermination (activeRouteTopo: RouteTopo): void {
   }
   termination.position = drawOn
   termination.strokeWidth = TOPO_PATH_BASE_STROKE * scale
-  termination.rotation = activeRouteTopo.topoPath.lastSegment.handleIn.angle + 180
+  termination.rotate(tangent.angle)
   termination.insertBelow(activeRouteTopo.topoPath)
   termination.visible = true
 }
@@ -433,7 +434,7 @@ const handleMouseMove = (e: paper.ToolEvent): void => {
   if ((activeRouteTopo != null) && currentlyDrawing && activeRouteTopo.topoPath.segments.length >= 1) {
     if (activeRouteTopo.topoPath.segments.length > 1) activeRouteTopo.topoPath.lastSegment.remove()
     activeRouteTopo.topoPath.add(e.point)
-    activeRouteTopo.topoPath.smooth({ type: 'catmull-rom', factor: 0, from: activeRouteTopo.smoothFrom !== null ? activeRouteTopo.smoothFrom : 0, to: -1 })
+    activeRouteTopo.topoPath.smooth({ type: 'geometric', factor: 0.3, from: activeRouteTopo.smoothFrom !== null ? activeRouteTopo.smoothFrom : 0, to: -1 })
     drawPathLook(activeRouteTopo)
     activeRouteTopo.routeGroup.sendToBack()
     strokeGroup?.sendToBack()
