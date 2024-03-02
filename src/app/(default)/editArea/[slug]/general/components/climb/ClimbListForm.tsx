@@ -1,9 +1,11 @@
+'use client'
 import clx from 'classnames'
 import { AreaMetadataType, ClimbDisciplineRecord, ClimbType } from '@/js/types'
 import { disciplineTypeToDisplay } from '@/js/grades/util'
 import { removeTypenameFromDisciplines, climbLeftRightIndexComparator } from '@/js/utils'
 import Grade, { GradeContexts } from '@/js/grades/Grade'
 import { ClimbListMiniToolbar } from '../../../manageClimbs/components/ClimbListMiniToolbar'
+import { highlightRoute, isRouteInTopo, unHighlightRoute } from '@/app/(default)/components/Topo/paperFunctions'
 
 export const ClimbList: React.FC<{ gradeContext: GradeContexts, climbs: ClimbType[], areaMetadata: AreaMetadataType, editMode: boolean, routePageId?: string }> = ({ gradeContext, climbs, areaMetadata, editMode, routePageId }) => {
   const sortedClimbs = [...climbs].sort(climbLeftRightIndexComparator)
@@ -46,7 +48,7 @@ export const ClimbRow: React.FC<ClimbType & { index: number, gradeContext: Grade
   ).toString()
   const url = `/climbs/${id}`
   return (
-    <li className={clx('py-2 break-inside-avoid-column break-inside-avoid', isThisRoute ? 'opacity-50' : '')}>
+    <li id={id} className={clx('py-2 break-inside-avoid-column break-inside-avoid p-2 rounded', isThisRoute || !isRouteInTopo(id) ? 'opacity-50' : '')} onMouseEnter={ () => { highlightRoute(id) }} onMouseLeave={ () => { unHighlightRoute(id) }}>
       <div className={clx('w-full', editMode ? 'card card-compact p-2 card-bordered bg-base-100 shadow' : '')}>
         <LinkWrapper isThisRoute={isThisRoute} url={url}>
           <div className='flex gap-x-4 flex-nowrap w-full'>

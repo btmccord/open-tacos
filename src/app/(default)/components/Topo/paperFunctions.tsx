@@ -1,6 +1,7 @@
 import { StaticImageData } from 'next/image'
 import paper, { Path, Layer, Raster, Color, Point, Group, Size, CompoundPath } from 'paper'
 import { PaperOffset } from 'paperjs-offset'
+import { off } from 'process'
 
 const TOPO_VERSION = 1
 
@@ -9,19 +10,27 @@ const ZOOM_FACTOR = 1.1
 const SavedTopoData: { [key: string]: string | undefined } = {}
 
 // COLORS
-const BLACK = new Color('black')
+const BLACK = new Color('Black')
 const WHITE = new Color('white')
-const RED = new Color('red')
 const BG = new Color('rgb(229, 231, 235)')
+const BLUE_GRAY = new Color('#263238')
+const RED = new Color('#D32F2F')
+const PURPLE = new Color('#7B1FA2')
+const BLUE = new Color('#1976D2')
+const GREEN = new Color('#2E7D32')
+const BROWN = new Color('#6D4C41')
+
 
 // GROUPS
 let activeRouteTopo: RouteTopo | undefined
 let routeTopos: RouteTopos = {}
 let strokeGroup: paper.Group | undefined
+let areaTopos: AreaTopos = {}
 
 // LAYERS
 let imageLayer: paper.Layer | undefined
 let drawingLayer: paper.Layer | undefined
+let overlay: paper.Layer | undefined
 
 // TOOLS
 const drawTool = new paper.Tool()
@@ -79,6 +88,17 @@ interface RouteTopos {
   [key: string]: RouteTopo
 }
 
+interface AreaTopo {
+  areaGroup: paper.Group
+  areaPath: paper.Rectangle
+  areaName: paper.PointText
+  areaNameBg: paper.Path
+}
+
+interface AreaTopos {
+  [key: string]: AreaTopo
+}
+
 export function initPaper (canvas: HTMLCanvasElement, isEditorMode: boolean): void {
   // isEditor = isEditorMode
   if (paper.project === null) paper.setup(canvas)
@@ -87,21 +107,22 @@ export function initPaper (canvas: HTMLCanvasElement, isEditorMode: boolean): vo
     drawTool.onMouseUp = handleMouseUp
     drawTool.onMouseMove = handleMouseMove
 
-    //   drawTool.onKeyUp = function (event: paper.KeyEvent) {
-    //     if (event.key == 'space' && drawingLayer) {
-    //         cleanUpTopo()
-    //         download(new File([drawingLayer.exportJSON()], 'path.json', {
-    //            type: 'json',
-    //         }))
-    //     }
-    // }
+      drawTool.onKeyUp = function (event: paper.KeyEvent) {
+        if (event.key == 'space' && drawingLayer) {
+          cleanUpTopo()
+          drawingLayer.data = { ...drawingLayer.data, topoOriginBounds:drawingLayer.bounds }
+            download(new File([drawingLayer.exportJSON()], 'path.json', {
+               type: 'json',
+            }))
+        }
+    }
   }
   paper.view.onMouseDrag = handleMouseDrag
   paper.view.onMouseDown = handleMouseDown
 }
 
 // Function draws the topo image and sets up the layer for drawing the topo data. If there is existing TOPO data it imports it and draws it
-export function drawTopo (image: StaticImageData, data?: string): void {
+export function drawTopo(image: StaticImageData, data?: string): void {
   const rect = new Path.Rectangle({
     point: [0, 0],
     size: [paper.project.view.size.width, paper.project.view.size.height]
@@ -112,13 +133,14 @@ export function drawTopo (image: StaticImageData, data?: string): void {
   const topoImage = new Raster({ source: image.src, position: paper.project.view.center })
 
   // Scale image to fit
-  topoImage.height > topoImage.width ? imageLayer.scale(paper.view.bounds.height / imageLayer.bounds.height) : imageLayer.scale(paper.view.bounds.width / imageLayer.bounds.width)
+  topoImage.height / topoImage.width > paper.view.bounds.height / paper.view.bounds.width ? imageLayer.scale(paper.view.bounds.height / imageLayer.bounds.height) : imageLayer.scale(paper.view.bounds.width / imageLayer.bounds.width)
 
   // Create layer for drawing
-  drawingLayer = new Layer({ data: { topoVersion: TOPO_VERSION } })
+  drawingLayer = new Layer({ data: { topoVersion: TOPO_VERSION, imgHeight: imageLayer.bounds.height, imgOrigin: imageLayer.bounds.topLeft } })
+  console.log(drawingLayer.bounds)
   drawingLayer.activate()
 
-  data = SavedTopoData[image.src]
+  //data = SavedTopoData[image.src]
 
   // Import data
   if (data != null) {
@@ -148,6 +170,16 @@ export function drawTopo (image: StaticImageData, data?: string): void {
           break
       }
     })
+    //Align image and drawing
+    const scale = imageLayer.bounds.height / drawingLayer.data.imgHeight
+    drawingLayer.scale(scale, drawingLayer.bounds.topLeft)
+    let origionalBounds = drawingLayer.data.topoOriginBounds
+    drawingLayer.bounds.x = origionalBounds.x * scale
+    drawingLayer.bounds.y = origionalBounds.y * scale
+    let scaledImgOrigin = drawingLayer.data.imgOrigin.multiply(scale)
+    let offset = imageLayer.bounds.topLeft.subtract(scaledImgOrigin)
+    drawingLayer.translate(offset)
+
   } else {
     strokeGroup = new Group({ name: STROKE_GROUP })
   }
@@ -161,7 +193,6 @@ export function setActiveRoute (routeInfo: RouteInfo): boolean {
   // If route doesnt exist create it
   if (findChildByName(drawingLayer, routeInfo.id) == null) {
     const routeGroup = new Group({ name: routeInfo.id, data: { ...routeInfo, scale: DEFAULT_TOPO_SCALE, sharesStartWith: [] } })
-    console.log(routeGroup)
     const routeTopo = {
       routeGroup,
       topoPath: new Path({ name: TOPO_PATH, parent: routeGroup, strokeColor: BLACK, strokeWidth: TOPO_PATH_BASE_WIDTH, strokeCap: 'butt', strokeJoin: 'round', fullySelected: false }),
@@ -187,7 +218,7 @@ export function toggleDrawing (state: boolean): void {
     activeRouteTopo.topoPathTermination.visible = false
   } else {
     activeRouteTopo.topoPath.lastSegment?.remove()
-    activeRouteTopo.topoPath.lastSegment.clearHandles()
+    activeRouteTopo.topoPath.lastSegment?.clearHandles()
     drawPathLook(activeRouteTopo)
   }
 }
@@ -222,11 +253,43 @@ export function clearProject (): void {
 }
 
 export function highlightRoute (id: string): void {
-  id in routeTopos && setTopoPathColor(id, RED)
+  //id in routeTopos && setTopoPathColor(id, RED)
+
+  // for (const [key, value] of Object.entries(routeTopos)) {
+  //   if (key == id) continue
+  //   //value.routeGroup.blendMode = 'soft-light'
+  //   value.routeGroup.opacity = .5
+  //   let stroke = findChildByName(strokeGroup, key + TOPO_STROKE_PATH)
+  //   console.log(stroke)
+  //   //if (stroke) stroke.blendMode = 'soft-light'
+  //   if (stroke) stroke.opacity = .5
+  // }
+
+  if (id in routeTopos) {
+    if (drawingLayer) drawingLayer.opacity = .5
+    overlay = new Layer({ children: [ findChildByName(strokeGroup, id + TOPO_STROKE_PATH)?.clone(), routeTopos[id].routeGroup.clone() ] })
+
+  }
 }
 
 export function unHighlightRoute (id: string): void {
-  id in routeTopos && setTopoPathColor(id, BLACK)
+  //id in routeTopos && setTopoPathColor(id, BLACK)
+  
+  // for (const [key, value] of Object.entries(routeTopos)) {
+  //   if (key == id) continue
+  //   //value.routeGroup.blendMode = 'normal'
+  //   value.routeGroup.opacity = 1
+  //   let stroke = findChildByName(strokeGroup, key + TOPO_STROKE_PATH)
+  //   console.log(stroke)
+  //   //if (stroke) stroke.blendMode = 'normal'
+  //   if (stroke) stroke.opacity = 1
+  // }
+  if (drawingLayer) drawingLayer.opacity = 1
+  overlay?.remove()
+}
+
+export function isRouteInTopo(id: string): boolean {
+  return id in routeTopos
 }
 
 export function scaleTopo (scale: number): void {
@@ -252,20 +315,20 @@ export function scaleTopo (scale: number): void {
 }
 
 function hookupRouteEventHandlers (routeGroup: paper.Group): void {
-  // routeGroup.onMouseEnter = (e: paper.MouseEvent) => {
-  //     if (e.currentTarget.name && !currentlyDrawing && !(activeRouteTopo?.routeGroup.name === e.currentTarget.name)) {
-  //         e.currentTarget.bringToFront()
-  //         document.getElementById(e.currentTarget.name)?.classList.add('!bg-red-200')
-  //         setTopoPathColor(e.currentTarget.name, RED)
-  //     }
-  // }
+  routeGroup.onMouseEnter = (e: paper.MouseEvent) => {
+      if (e.currentTarget.name && !currentlyDrawing && !(activeRouteTopo?.routeGroup.name === e.currentTarget.name)) {
+          e.currentTarget.bringToFront()
+          document.getElementById(e.currentTarget.name)?.classList.add('!bg-red-200')
+          setTopoPathColor(e.currentTarget.name, RED)
+      }
+  }
 
-  // routeGroup.onMouseLeave = (e: paper.MouseEvent) => {
-  //     if (e.currentTarget.name && !currentlyDrawing && !(activeRouteTopo?.routeGroup.name === e.currentTarget.name)) {
-  //         document.getElementById(e.currentTarget.name)?.classList.remove('!bg-red-200')
-  //         setTopoPathColor(e.currentTarget.name, BLACK)
-  //     }
-  // }
+  routeGroup.onMouseLeave = (e: paper.MouseEvent) => {
+      if (e.currentTarget.name && !currentlyDrawing && !(activeRouteTopo?.routeGroup.name === e.currentTarget.name)) {
+          document.getElementById(e.currentTarget.name)?.classList.remove('!bg-red-200')
+          setTopoPathColor(e.currentTarget.name, BLACK)
+      }
+  }
 
 }
 
@@ -508,6 +571,10 @@ const handleMouseDown = (e: paper.MouseEvent): void => {
   mouseDownPoint = e.point
 }
 
+//
+//AREA TOPO FUNCTIONS
+//
+
 // UTILITY FUNCTIONS
 
 function findChildByName (item: paper.Item | undefined, name: string): paper.Path | paper.PointText | paper.CompoundPath | paper.Group | undefined {
@@ -538,15 +605,15 @@ function cleanUpTopo (): void {
   }
 }
 
-// function download(file: File) {
-//     const link = document.createElement('a')
-//     const url = URL.createObjectURL(file)
+function download(file: File) {
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(file)
 
-//     link.href = url
-//     link.download = file.name
-//     document.body.appendChild(link)
-//     link.click()
+    link.href = url
+    link.download = file.name
+    document.body.appendChild(link)
+    link.click()
 
-//     document.body.removeChild(link)
-//     window.URL.revokeObjectURL(url)
-// }
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+}

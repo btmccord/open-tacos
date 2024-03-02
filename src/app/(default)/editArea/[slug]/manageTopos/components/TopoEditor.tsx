@@ -10,6 +10,7 @@ import { ArrowCounterClockwise, ArrowUp, Check, Circle, NumberCircleZero, Pencil
 import { ANCHOR, ARROW, RouteInfo, resetRouteTopo, setTerminationStyle, toggleDrawing, setActiveRoute, removeLastPoint, scaleTopo, BELAY } from '@/app/(default)/components/Topo/paperFunctions'
 import clx from 'classnames'
 import * as Slider from '@radix-ui/react-slider'
+import { getArea } from '@/js/graphql/getArea'
 
 export const TopoEditor: React.FC<{ area: AreaType }> = ({ area }) => {
   const [activeRoute, setActiveRouteState] = useState<RouteInfo | undefined>()
@@ -17,7 +18,15 @@ export const TopoEditor: React.FC<{ area: AreaType }> = ({ area }) => {
   const [termination, setTerminationState] = useState(ANCHOR)
   const [drawingState, setDrawingState] = useState(false)
   const [scaleState, setScaleState] = useState(1)
+  const [siblings, setSiblings] = useState<AreaType[]>([])
 
+  useEffect(() => {
+    getArea(area.ancestors[area.ancestors.length - 2], 'cache-first').then((data) => {
+      const siblingss = data.area.children
+      setSiblings(siblingss)
+    })
+  },[area])
+  
   const handleClimbClick = (climb: ClimbType, index: number): void => {
     const activeRouteInfo: RouteInfo = ({ id: climb.id, routeNumber: index, routeName: climb.name })
     if (drawingState) setDrawingState(false)
@@ -74,6 +83,7 @@ export const TopoEditor: React.FC<{ area: AreaType }> = ({ area }) => {
       </div>
       <div className='grid grid-cols-6 my-8 gap-8'>
         <TopoClimbListSection area={area} activeRoute={activeRoute} onClick={handleClimbClick} />
+        
         <div id='topo' className='col-start-2 col-end-7'>
           <h3 className=''>Topo Editor</h3>
           <hr className='mt-2 mb-6 border-2 border-base-content' />
@@ -96,9 +106,14 @@ export const TopoEditor: React.FC<{ area: AreaType }> = ({ area }) => {
             <div className='text-sm'>Scale</div>
             <ScaleSlider handleScaleValueChange={handleScaleValueChange} enabled={(activeRoute != null)} />
           </div>
-          <Topo activeRoute={activeRoute} image={activeTopoImage} isEditor />
+          <Topo activeRoute={activeRoute} image={activeTopoImage} data={ undefined } isEditor />
         </div>
       </div>
+      {siblings.map((area) => {
+        return (
+          <SiblingAreaList area={area} />
+        )
+      })}
     </div>
   )
 }
@@ -124,3 +139,11 @@ const ScaleSlider: React.FC<{ handleScaleValueChange: (arg: number[]) => void, e
     </Slider.Root>
   </form>
 )
+
+const SiblingAreaList: React.FC<{ area: AreaType }> = ({area}) => {
+  return (
+    <>
+      <div>{area.areaName}</div>
+    </>
+  )
+}
